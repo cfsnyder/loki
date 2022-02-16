@@ -10,7 +10,7 @@
 .PHONY: validate-example-configs generate-example-config-doc check-example-config-doc
 .PHONY: clean clean-protos
 
-SHELL = /usr/bin/env bash
+SHELL = /usr/bin/env bash -o pipefail
 
 # Empty value = no -mod parameter is used.
 # If not empty, GOMOD is passed to -mod= parameter.
@@ -143,6 +143,19 @@ check-generated-files: yacc ragel protos clients/pkg/promtail/server/ui/assets_v
 		exit 1; \
 	fi
 
+#################
+# Documentation #
+#################
+
+clean-docs:
+	rm -rf docs/sources/configuration/reference.md
+
+docs: clean-docs
+	go run ./cmd/docgen/ ./docs/sources/configuration/reference.template > ./docs/sources/configuration/reference.md
+
+check-docs: docs
+	@git diff --exit-code -- ./docs/sources/configuration/reference.md
+
 ##########
 # Logcli #
 ##########
@@ -274,7 +287,7 @@ lint:
 ########
 
 test: all
-	GOGC=10 $(GOTEST) -covermode=atomic -coverprofile=coverage.txt $(MOD_FLAG) -p=4 ./...
+	GOGC=10 $(GOTEST) -covermode=atomic -coverprofile=coverage.txt $(MOD_FLAG) -p=4 ./... | tee results.txt
 
 #########
 # Clean #

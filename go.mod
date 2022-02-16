@@ -289,6 +289,7 @@ require (
 	github.com/gofrs/flock v0.7.1 // indirect
 	github.com/gogo/status v1.1.0
 	github.com/grafana/regexp v0.0.0-20220202152701-6a046c4caf32
+	github.com/mitchellh/go-wordwrap v1.0.0
 	github.com/oklog/ulid v1.3.1
 )
 
