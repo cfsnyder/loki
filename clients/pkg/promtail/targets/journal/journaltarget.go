@@ -44,6 +44,7 @@ const (
 type journalReader interface {
 	io.Closer
 	Follow(until <-chan time.Time, writer io.Writer) error
+	Rewind() error
 }
 
 // Abstracted functions for interacting with the journal, used for mocking in tests:
@@ -90,13 +91,15 @@ var defaultJournalEntryFunc = func(c sdjournal.JournalReaderConfig, cursor strin
 // JournalTarget tails systemd journal entries.
 // nolint
 type JournalTarget struct {
-	logger        log.Logger
-	handler       api.EntryHandler
-	positions     positions.Positions
-	positionPath  string
-	relabelConfig []*relabel.Config
-	config        *scrapeconfig.JournalTargetConfig
-	labels        model.LabelSet
+	metrics                *Metrics
+	logger                 log.Logger
+	handler                api.EntryHandler
+	positions              positions.Positions
+	positionPath           string
+	relabelConfig          []*relabel.Config
+	config                 *scrapeconfig.JournalTargetConfig
+	labels                 model.LabelSet
+	lastEntryMonotonicTime uint64
 
 	r     journalReader
 	until chan time.Time
@@ -104,6 +107,7 @@ type JournalTarget struct {
 
 // NewJournalTarget configures a new JournalTarget.
 func NewJournalTarget(
+	metrics *Metrics,
 	logger log.Logger,
 	handler api.EntryHandler,
 	positions positions.Positions,
@@ -113,6 +117,7 @@ func NewJournalTarget(
 ) (*JournalTarget, error) {
 
 	return journalTargetWithReader(
+		metrics,
 		logger,
 		handler,
 		positions,
@@ -125,6 +130,7 @@ func NewJournalTarget(
 }
 
 func journalTargetWithReader(
+	metrics *Metrics,
 	logger log.Logger,
 	handler api.EntryHandler,
 	pos positions.Positions,
@@ -147,6 +153,7 @@ func journalTargetWithReader(
 
 	until := make(chan time.Time)
 	t := &JournalTarget{
+		metrics:       metrics,
 		logger:        logger,
 		handler:       handler,
 		positions:     pos,
@@ -186,7 +193,14 @@ func journalTargetWithReader(
 			if err != nil {
 				level.Error(t.logger).Log("msg", "received error during sdjournal follow", "err", err.Error())
 
-				if err == sdjournal.ErrExpired || err == syscall.EBADMSG || err == io.EOF {
+				if strings.Contains(err.Error(), syscall.EBADMSG.Error()) {
+					t.metrics.journalFollowFailures.Inc()
+					if err = t.r.Rewind(); err != nil {
+						level.Error(t.logger).Log("msg", "failed to rewind to the head of the journal", "err", err.Error())
+						return
+					}
+				}
+				if err == sdjournal.ErrExpired || err == io.EOF {
 					level.Error(t.logger).Log("msg", "unable to follow journal", "err", err.Error())
 					return
 				}
@@ -300,12 +314,17 @@ func (t *JournalTarget) formatter(entry *sdjournal.JournalEntry) (string, error)
 	}
 
 	t.positions.PutString(t.positionPath, entry.Cursor)
-	t.handler.Chan() <- api.Entry{
-		Labels: labels,
-		Entry: logproto.Entry{
-			Line:      msg,
-			Timestamp: ts,
-		},
+	// prevents duplicate entries when Follow failed with an EBADMSG error, and we had to rewind the cursor to find
+	// a valid starting point
+	if entry.MonotonicTimestamp > t.lastEntryMonotonicTime {
+		t.lastEntryMonotonicTime = entry.MonotonicTimestamp
+		t.handler.Chan() <- api.Entry{
+			Labels: labels,
+			Entry: logproto.Entry{
+				Line:      msg,
+				Timestamp: ts,
+			},
+		}
 	}
 	return journalEmptyStr, nil
 }

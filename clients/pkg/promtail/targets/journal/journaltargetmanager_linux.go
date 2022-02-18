@@ -24,12 +24,17 @@ type JournalTargetManager struct {
 
 // NewJournalTargetManager creates a new JournalTargetManager.
 func NewJournalTargetManager(
-	reg prometheus.Registerer,
+	metrics *Metrics,
 	logger log.Logger,
 	positions positions.Positions,
 	client api.EntryHandler,
 	scrapeConfigs []scrapeconfig.Config,
 ) (*JournalTargetManager, error) {
+	reg := metrics.reg
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+
 	tm := &JournalTargetManager{
 		logger:  logger,
 		targets: make(map[string]*JournalTarget),
@@ -46,6 +51,7 @@ func NewJournalTargetManager(
 		}
 
 		t, err := NewJournalTarget(
+			metrics,
 			logger,
 			pipeline.Wrap(client),
 			positions,

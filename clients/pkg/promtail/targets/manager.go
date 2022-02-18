@@ -116,6 +116,7 @@ func NewTargetManagers(
 		gcplogMetrics     *gcplog.Metrics
 		gelfMetrics       *gelf.Metrics
 		cloudflareMetrics *cloudflare.Metrics
+		journalMetrics    *journal.Metrics
 	)
 	if len(targetScrapeConfigs[FileScrapeConfigs]) > 0 {
 		fileMetrics = file.NewMetrics(reg)
@@ -131,6 +132,9 @@ func NewTargetManagers(
 	}
 	if len(targetScrapeConfigs[CloudflareConfigs]) > 0 {
 		cloudflareMetrics = cloudflare.NewMetrics(reg)
+	}
+	if len(targetScrapeConfigs[JournalScrapeConfigs]) > 0 {
+		journalMetrics = journal.NewMetrics(reg)
 	}
 
 	for target, scrapeConfigs := range targetScrapeConfigs {
@@ -158,7 +162,7 @@ func NewTargetManagers(
 				return nil, err
 			}
 			journalTargetManager, err := journal.NewJournalTargetManager(
-				reg,
+				journalMetrics,
 				logger,
 				pos,
 				client,
